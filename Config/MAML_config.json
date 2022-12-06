@@ -1,0 +1,64 @@
+{"MAML_test": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_9_0.2_2000_train.csv",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len":128,
+		"truncation": true
+	},
+	"seeds": [123, 987],
+	"K_values": [100, 200],
+	"K_test": 200,
+	"learner_class": "MAML_Learner",
+	"learner_args": {
+		"train_num_task": 5, 
+		"train_k_support": 8, 
+		"train_k_query": 2, 
+		"test_num_task": 1, 
+		"eval_while_train": false, 
+		"step_interval": 5, 
+		"val_num_train_epoch": 3, 
+		"return_best_statedict": true, 
+		"skip_validation": false
+	},
+	"test_args": {
+		"output_dir": "./",
+		"save_strategy": "no",
+		"num_train_epochs": 1,
+		"logging_strategy": "no" 
+	},
+	"save_dir": "../../Results"
+	},
+"MAML_basic": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_9_0.2_2000_train.csv",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len":320,
+		"truncation": true
+	},
+	"seeds": [123,987],
+	"K_values": [100,500,1000],
+	"K_test": 200,
+	"learner_class": "MAML_Learner",
+	"learner_args": {
+		"train_num_task": 50, 
+		"train_k_support": 80, 
+		"train_k_query": 20, 
+		"test_num_task": 1, 
+		"eval_while_train": false, 
+		"step_interval": 5, 
+		"val_num_train_epoch": 3, 
+		"return_best_statedict": true, 
+		"skip_validation": false
+	},
+	"test_args": {
+		"output_dir": "./",
+		"save_strategy": "no",
+		"num_train_epochs": 5,
+		"logging_strategy": "no" 
+	},
+	"save_dir": "../../Results"
+	}
+
+}
