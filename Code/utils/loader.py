@@ -1,3 +1,6 @@
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
 import json
 from random import shuffle
 import pandas as pd, numpy as np
@@ -177,22 +180,17 @@ def create_meta_batches(loader:MetaLoader, batch_size: int, is_shuffle=False, sp
     return batches
         
         
-class TrainingArgs:
-    def __init__(self):
-        self.num_labels = 2
-        self.meta_epoch= 5 #modify 
-        self.k_spt=80
-        self.k_qry=20
-        self.outer_batch_size = 10
-        self.inner_batch_size = 10
-        self.outer_update_lr = 5e-5
-        self.inner_update_lr = 1e-5
-        self.inner_update_step = 2 #what are these????
-        self.inner_update_step_eval = 40
-        # str, can also be the directory where the model is saved
-        self.model_class = 'roberta-base' #instead of self.bert_model
-        self.num_task_train = 500
-        self.num_task_test = 5
+class TrainingArgs(object):
+    '''
+        Specifying the key parameters for metalearner
+    '''
+    def __init__(self, *initial_data, **kwargs):
+        for dictionary in initial_data:
+            for key in dictionary:
+                setattr(self, key, dictionary[key])
+        for key in kwargs:
+            setattr(self, key, kwargs[key])
+            
 
 metric = load_metric('accuracy')
 def compute_metrics(eval_pred):

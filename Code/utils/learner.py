@@ -1,3 +1,6 @@
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
 import torch
 import numpy as np
 from torch import nn
