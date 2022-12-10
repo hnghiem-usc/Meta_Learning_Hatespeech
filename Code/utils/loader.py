@@ -13,12 +13,19 @@ import collections
 import random
 import json, pickle
 import gc
+
 from torch.utils.data import TensorDataset
+from torch.optim import AdamW
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler
+
 from transformers import RobertaTokenizer, RobertaForSequenceClassification, BertForSequenceClassification
 from transformers import TrainingArguments, Trainer
+
 from datasets import load_dataset, load_metric, Dataset as hg_Dataset
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score, classification_report
 from math import ceil
+
+
 
 import time
 import logging
@@ -192,11 +199,17 @@ class TrainingArgs(object):
             setattr(self, key, kwargs[key])
             
 
-metric = load_metric('accuracy')
+# metric = load_metric('accuracy')
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
-    return metric.compute(predictions=predictions, references=labels)
+    results = classification_report(y_true=labels, y_pred=predictions,
+                                        output_dict=True,
+                                        zero_division=0)
+    test_f1 = round(results['macro avg']['f1-score'],3)
+    test_acc = round(results['accuracy'],3)
+    return {'eval_f1':test_f1, 'eval_acc':test_acc}
+#     return metric.compute(predictions=predictions, references=labels)
 
 
 def collate_to_Dataset(tensorset, position_dict={'input_ids':0, 'attention_mask':1, 'labels':2}):
@@ -207,6 +220,12 @@ def collate_to_Dataset(tensorset, position_dict={'input_ids':0, 'attention_mask'
 
     return hg_Dataset.from_dict(batch)
 
+
+def to_torch_Dataset(df:pd.DataFrame, select_vars:list, tokenize_function): 
+    ds = hg_Dataset.from_pandas(df[select_vars])
+    ds = ds.map(tokenize_function, batched=True, remove_columns=['text','__index_level_0__'])
+    ds = ds.with_format('torch')
+    return ds
 
 ############################## TRAINING HELPER FUNCTIONS ##############################
 
@@ -253,6 +272,9 @@ def meta_train(meta_learner, meta_args, df_train, df_test, tokenizer, max_len,
                eval_while_train, val_metric_function, step_interval,
                val_num_train_epoch, skip_validation=False, return_best_statedict=False,
                seed=123):
+    '''
+    Train full loops with meta-learner model
+    '''
     # set_seed(seed)
     acc_all_train = []
     acc_all_test = []
@@ -331,4 +353,85 @@ def meta_train(meta_learner, meta_args, df_train, df_test, tokenizer, max_len,
     if return_best_statedict:
         output_dict[seed]['best_statedict'] = best_state_dict
 
+    return output_dict
+
+
+def binary_train(model, epochs, batch_size, eval_interval, train_dataset, val_dataset, test_dataset,\
+                 test_args, seed, return_best_statedict=True): 
+    '''
+    Train full loops with BINARY models (e.g.: roberta)
+    '''
+    # parameters to keep track of training steps 
+    shape = len(train_dataset)
+    max_steps = ceil(epochs*shape/batch_size)
+    # steps_to_eval = ceil(number_of_steps/number_of_intervals)
+
+    best_state_dict = model.state_dict()
+    train_acc = []
+    validation_f1 = []
+    validation_acc = []
+    output_dict = {seed: {'report': (), 'best_statedict': None}}
+
+    train_sampler = DataLoader(train_dataset, batch_size=batch_size)
+    global_step = 0
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model.to(device)
+    optimizer = AdamW(model.parameters(), lr=2e-5)
+    for e in range(epochs):
+        for step, batch in enumerate(train_sampler):
+            model.train()
+            batch = {k:b.to(device) for k,b in batch.items()}
+            # return batch 
+            outputs = model(input_ids = batch['input_ids'], attention_mask=batch['attention_mask'],\
+                            labels=batch['labels'])
+        
+            train_loss = outputs[0]
+            # update gradient 
+            train_loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            # train and eval results on the test set 
+            if global_step % eval_interval == 0 or global_step >= max_steps - 1:
+                # eval on val set
+                if val_dataset is not None: 
+                    v_model = deepcopy(model)
+                    v_trainer = Trainer(v_model, compute_metrics=compute_metrics,\
+                                args = TrainingArguments(disable_tqdm=True, \
+                                                         output_dir="./"))
+                    v_outputs = v_trainer.evaluate(val_dataset)
+                    train_acc.append(v_outputs['eval_acc'])
+                    # validation_f1.append(v_outputs['eval_loss'])
+                    print("Step: {}, Training Loss: {}, Eval Accuracy: {}".format(global_step, v_outputs['eval_loss'],  v_outputs['eval_acc']))
+                    del v_model, v_trainer, v_outputs
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
+                # eval on test set f
+                print("Eval on Test set...")
+                t_model = deepcopy(model)
+                t_trainer, t_results = quick_eval(t_model, test_dataset, test_dataset, test_args,
+                                            metric_func=compute_metrics, eval_while_train=False)
+                test_f1 = round(t_results['macro avg']['f1-score'],3)
+                test_acc = round(t_results['accuracy'],3)
+                validation_f1.append(test_f1)
+                validation_acc.append(test_acc)
+
+                # retain datedict with best f1
+                if (not validation_f1) or (test_f1 >= max(validation_f1)): 
+                    best_state_dict = deepcopy(t_trainer.model.state_dict())
+                    print("Update best params at step", global_step)
+
+                del t_model, t_trainer, t_results
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            output_dict[seed]['report'] = (train_acc, validation_f1, validation_acc)
+            if return_best_statedict:
+                output_dict[seed]['best_statedict'] = best_state_dict
+
+            # update steps
+            global_step += 1
+    print("Total number of steps", global_step)
     return output_dict
