@@ -8,7 +8,7 @@ import gc
 import torch
 import json
 import argparse 
-from transformers import RobertaTokenizer, RobertaForSequenceClassification, BertForSequenceClassification
+from transformers import RobertaTokenizer, RobertaForSequenceClassification, RobertaForSequenceClassification
 
 learner_lookup = {'MAML_Learner': MAML_Learner}
 
@@ -43,7 +43,7 @@ def compile_arguments(parser):
         config = json.load(f)[args.config_key]
     
     config['holdout_set'] = args.holdout_set
-    
+    ## Append the tokenizer directory
     config['tokenizer_args']['tokenizer_dir'] = args.tokenizer_dir
     tokenizer = create_tokenizer(config['tokenizer_args'])
     config['tokenizer'] = tokenizer
@@ -54,8 +54,8 @@ def compile_arguments(parser):
     return config
  
         
-def run_experiment(data_dir, train_filename, holdout_set, seeds, K_values, K_test, tokenizer, max_len, learner_class, learner_args, compute_metrics,
-            test_args, save_dir):
+def run_experiment(data_dir, train_filename, holdout_set, seeds, K_values, K_test, tokenizer, max_len, base_args, 
+                   learner_class, learner_args, compute_metrics, test_args, save_dir):
     
     df = pd.read_csv(data_dir + train_filename)
     df.rename(columns={'name':'domain'}, inplace=True)
@@ -84,7 +84,7 @@ def run_experiment(data_dir, train_filename, holdout_set, seeds, K_values, K_tes
             print("Test domains:", df_test.domain.unique(), df_test.shape)
 
             # Specify training arguments !!! COMPARE TO MAKE SURE ARGUMENTS ARE CONSISTENT
-            args = TrainingArgs()
+            args = TrainingArgs(base_args)
             learner = learner_lookup[learner_class](args) 
             print("--------------- META TRAINING ---------------")
             meta_output = meta_train(meta_learner=learner, meta_args=args, max_len=max_len,
