@@ -1,0 +1,84 @@
+{"binary_test": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_9_0.2_2000_train.csv",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len":128,
+		"truncation": true
+	},
+	"seeds": [123, 987],
+	"K_values": [100, 115],
+	"K_test": 200,
+	"train_epochs":1,
+	"batch_size": 16, 
+	"eval_interval": 10,
+	"train_num_sample": 100, 
+	"train_val_size": 35, 
+	"model_args":{
+		"model_class":"roberta-base",
+		"model_dir": "../../Model/RobertaForSequenceClassification/roberta_base",
+		"num_labels": 2
+	},
+	"val_args_dict":{
+		"output_dir":"./",
+		"save_strategy":"no",
+		"evaluation_strategy":"no",
+		"learning_rate":2e-5,
+		"num_train_epochs":3, 
+		"logging_strategy":"no",
+		"disable_tqdm":true
+        },
+    "test_args_dict": {
+		"output_dir":"./'",
+		"save_strategy":"no",
+		"evaluation_strategy":"no",
+		"learning_rate":2e-5,
+		"num_train_epochs":5, 
+		"logging_strategy":"no",
+		"disable_tqdm":true
+    	},
+    "save_dir": "../../Results"
+	}, 
+"binary_basic": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_9_0.2_2000_train.csv",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len": 320,
+		"truncation": true
+	},
+	"seeds": [123,],
+	"K_values": [100],
+	"K_test": 200,
+	"train_epochs":1,
+	"batch_size": 16, 
+	"eval_interval": 500,
+	// remove to run on entire training set
+	"train_num_sample": 100, 
+	"train_val_size": 500, 
+	"model_args":{
+		"model_class":"roberta-base",
+		"model_dir": "../../Model/RobertaForSequenceClassification/roberta_base",
+		"num_labels": 2
+	},
+	"val_args_dict":{
+		"output_dir":"./",
+		"save_strategy":"no",
+		"evaluation_strategy":"no",
+		"learning_rate":2e-5,
+		"num_train_epochs":3, 
+		"logging_strategy":"no",
+		"disable_tqdm":true
+        },
+    "test_args_dict": {
+		"output_dir":"./'",
+		"save_strategy":"no",
+		"evaluation_strategy":"no",
+		"learning_rate":2e-5,
+		"num_train_epochs":5, 
+		"logging_strategy":"no",
+		"disable_tqdm":true
+    	},
+    "save_dir": "../../Results"
+	}
+}
