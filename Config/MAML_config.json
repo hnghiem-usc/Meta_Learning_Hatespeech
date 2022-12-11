@@ -9,6 +9,19 @@
 	"seeds": [123, 987],
 	"K_values": [100, 200],
 	"K_test": 200,
+	"base_args": {
+		"num_labels":2,
+        "meta_epoch":5,
+	    "outer_batch_size":10,
+	    "inner_batch_size":10,
+	    "outer_update_lr": 5e-5,
+	    "inner_update_lr":1e-5,
+	    "inner_update_step":2,
+	    "inner_update_step_eval":40,
+	    "model_class":"../../Model/RobertaForSequenceClassification/roberta_base",
+	    "num_task_train":500,
+	    "num_task_test": 5 
+    },
 	"learner_class": "MAML_Learner",
 	"learner_args": {
 		"train_num_task": 5, 
@@ -29,6 +42,7 @@
 	},
 	"save_dir": "../../Results"
 	},
+
 "MAML_basic": {
 	"data_dir": "../../Data/Meta_data/",
 	"train_filename": "meta_9_0.2_2000_train.csv",
@@ -40,6 +54,19 @@
 	"seeds": [123,987],
 	"K_values": [100,500,1000],
 	"K_test": 200,
+	"base_args": {
+		"num_labels":2,
+        "meta_epoch":5,
+	    "outer_batch_size":10,
+	    "inner_batch_size":10,
+	    "outer_update_lr": 5e-5,
+	    "inner_update_lr":1e-5,
+	    "inner_update_step":2,
+	    "inner_update_step_eval":40,
+	    "model_class":"../../Model/RobertaForSequenceClassification/roberta_base",
+	    "num_task_train":500,
+	    "num_task_test": 5 
+    },
 	"learner_class": "MAML_Learner",
 	"learner_args": {
 		"train_num_task": 50, 

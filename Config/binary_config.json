@@ -47,15 +47,14 @@
 		"max_len": 320,
 		"truncation": true
 	},
-	"seeds": [123,],
+	"seeds": [123, 987],
 	"K_values": [100],
-	"K_test": 200,
-	"train_epochs":1,
+	"K_test": 2000,
+	"train_epochs":3,
 	"batch_size": 16, 
 	"eval_interval": 500,
-	// remove to run on entire training set
-	"train_num_sample": 100, 
-	"train_val_size": 500, 
+	"train_num_sample": 10000, 
+	"train_val_size": 1000, 
 	"model_args":{
 		"model_class":"roberta-base",
 		"model_dir": "../../Model/RobertaForSequenceClassification/roberta_base",
