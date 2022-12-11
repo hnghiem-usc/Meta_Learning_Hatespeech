@@ -6,18 +6,17 @@
 #SBATCH --mem=16GB
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:p100:1
-#SBATCH --time=1:00:00
-
+#SBATCH --time=10:00:00
 
 module load conda
 
 cd "/scratch1/hnghiem/Meta_Learning_Hatespeech/Code/scripts"
 source activate metahate
-
-declare -a arr=("trac" "davidson")
+ 
+declare -a arr=("waseem" "jigsaw" "founta")
 
 for h in "${arr[@]}"; do \
-        python run_binary.py  --config_key binary_test --holdout_set $h
+        python run_test.py --config_key MAML_basic --holdout_set $h
 done;
 
 conda deactivate

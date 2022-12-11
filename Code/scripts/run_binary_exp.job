@@ -6,7 +6,7 @@
 #SBATCH --mem=16GB
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:p100:1
-#SBATCH --time=1:00:00
+#SBATCH --time=10:00:00
 
 
 module load conda
@@ -17,8 +17,10 @@ source activate metahate
 declare -a arr=("trac" "davidson")
 
 for h in "${arr[@]}"; do \
-        python run_binary.py  --config_key binary_test --holdout_set $h
+        python run_binary.py  --config_key binary_basic --holdout_set $h
 done;
 
+rm -rf runs
+rm -rf "'"
 conda deactivate
 

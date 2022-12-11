@@ -76,7 +76,7 @@ def run_experiment(data_dir, train_filename, holdout_set, seeds, K_values, K_tes
         # LOAD DATA 
         df_train = df[~df.domain.isin([holdout_set])].sample(frac=1, random_state=seed)
         if train_num_sample is not None:
-            df_train = df_train.sample(train_num_sample)
+            df_train = df_train.sample(train_num_sample, random_state=seed)
        
         select_vars = ['text', 'labels']
         train = to_torch_Dataset(df_train, select_vars, tokenize_function )
