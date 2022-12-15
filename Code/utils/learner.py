@@ -8,14 +8,15 @@ from torch.nn import functional as F
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
-from transformers import RobertaForSequenceClassification
+from transformers import RobertaForSequenceClassification, BertForSequenceClassification
 from copy import deepcopy
 import gc
 from sklearn.metrics import accuracy_score
 
+model_lookup = {'roberta':RobertaForSequenceClassification, 'bert':BertForSequenceClassification}
 
 class MAML_Learner(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, model_lookup:dict=model_lookup):
         """
         :param args:
         """
@@ -29,9 +30,10 @@ class MAML_Learner(nn.Module):
         self.inner_update_step = args.inner_update_step
         self.inner_update_step_eval = args.inner_update_step_eval
         self.model_class = args.model_class
+        self.model_dir = args.model_dir
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.model = RobertaForSequenceClassification.from_pretrained(self.model_class, num_labels = self.num_labels)
+        self.model = model_lookup[self.model_class].from_pretrained(self.model_dir, num_labels = self.num_labels)
         self.outer_optimizer = Adam(self.model.parameters(), lr=self.outer_update_lr) #for meta learner
         self.model.train()
         
@@ -58,7 +60,7 @@ class MAML_Learner(nn.Module):
             fast_model.train()
             
             if meta_train: 
-                # back-prop on support data 
+                # train and update inner model
                 for i in range(0,num_inner_update_step):
                     all_loss = []
                     num_iter = 0

@@ -65,6 +65,8 @@ class MetaLoader(Dataset):
             self.create_fixed_batch()
         elif batch_mode == 'disjoint':
             self.create_disjoint_batch()
+        elif batch_mode == 'joint': 
+            self.create_joint_batch()
         else:
             self.create_random_batch()
     
@@ -72,11 +74,12 @@ class MetaLoader(Dataset):
     def __reset_batch__(self):
         self.support = [] 
         self.query = []
-
  
+
     def create_random_batch(self):
         """
         Arrange data into random query and support test. 
+        NOTE: support and query may not belong to the same domain
         param num_task: int, number of meta-samples per batch
         param test_domains: list, if not empty, the domains of which samples are chosen for train and test are mutually exclusive
         """
@@ -94,6 +97,26 @@ class MetaLoader(Dataset):
             else: 
                 sample_train = [random.choice(self.data[random.choice(self.domain_list)]) for i in range(self.k_support)]
                 sample_test  = [random.choice(self.data[random.choice(self.domain_list)]) for i in range(self.k_query)]
+            self.support.append(sample_train)     
+            self.query.append(sample_test)
+    
+    
+    def create_joint_batch(self): 
+        '''
+        Arrange data such that support and query batches are from the same domain.
+        NOTE: sample may still overlap between train and test set
+        '''
+        self.__reset_batch__()
+        if self.verbose: 
+            print("Creating JOINT batch...")
+        if self.test_domains:
+            train_domains = [d for d in self.domain_list if d not in self.test_domains]
+            
+        for i in range(self.num_task):
+            domain = random.choice(self.domain_list)
+            sample_train = [random.choice(self.data[domain]) for i in range(self.k_support)]
+            sample_test  = [random.choice(self.data[domain]) for i in range(self.k_query)]
+            
             self.support.append(sample_train)     
             self.query.append(sample_test)
             
@@ -117,6 +140,9 @@ class MetaLoader(Dataset):
     
     
     def create_fixed_batch(self):
+        '''
+        Select data sequentially from the main set
+        '''
         if self.verbose: 
             print("Creating FIXED batch...")
         self.__reset_batch__()
@@ -185,6 +211,26 @@ def create_meta_batches(loader:MetaLoader, batch_size: int, is_shuffle=False, sp
         collated_test  = collate_to_Dataset(batch[0][1])
         return collated_train, collated_test
     return batches
+
+
+def create_test_sets(df:pd.DataFrame, k_vals:list, k_test, holdout_set, seed:int):
+    '''
+    Divide general dataset to return all necessary datasets for meta training
+    '''
+    df_train = df[~df.domain.isin([holdout_set])]
+    df_test_all = df[df.domain.isin([holdout_set])]
+    df_test = df_test_all.sample(k_test, random_state=seed)
+    print("Training Domains:", df_train.domain.unique(), df_train.shape)
+    print("Testing Domains:", df_test_all.domain.unique(), df_test_all.shape)
+
+    val_data=dict() 
+    for k in k_vals: 
+        # enforce disjointness between train and test set 
+        df_val = df_test_all.loc[~df_test_all.id.isin(df_test.id)].sample(k, random_state=seed)
+        df_val = pd.concat([df_val, df_val])   
+        val_data[k] = df_val
+    
+    return df_train, df_test, val_data
         
         
 class TrainingArgs(object):
@@ -266,12 +312,13 @@ def quick_eval(model, train_set, test_set, training_args, label_var='labels', re
     return trainer, results
 
 
-def meta_train(meta_learner, meta_args, df_train, df_test, tokenizer, max_len,
+def meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
                train_num_task, train_k_support, train_k_query,  
-               test_num_task, test_k_support, test_k_query, 
+#                test_num_task:int, test_k_supports:list, test_k_query:int, 
+               test_num_task:int, test_params: dict, 
                eval_while_train, val_metric_function, step_interval,
                val_num_train_epoch, skip_validation=False, return_best_statedict=False,
-               seed=123):
+               disable_tqdm=True, seed=123):
     '''
     Train full loops with meta-learner model
     '''
@@ -279,28 +326,26 @@ def meta_train(meta_learner, meta_args, df_train, df_test, tokenizer, max_len,
     acc_all_train = []
     acc_all_test = []
     idx_array = []
-    validation_results = []
-    validation_f1 = []
-    validation_acc = []
+    
+    validation_results = {k: [] for k in test_params}
+    validation_f1 = deepcopy(validation_results)
+    validation_acc = deepcopy(validation_results)
 
     output_dict = {seed: {'report': (), 'best_statedict': None}}
     # Create test loader
-    test = MetaLoader(df_test, num_task = test_num_task, max_len=max_len,
-                      k_support=test_k_support, k_query=test_k_query, 
-                      tokenizer = tokenizer, batch_mode='fixed', verbose=True)
-    train_ds, test_ds = create_meta_batches(test, 1, split_to_train_test=True)
     test_args = TrainingArguments(output_dir = './',
                                   save_strategy='no',
                                   evaluation_strategy='epoch',
                                   learning_rate=meta_args.inner_update_lr,
                                   seed=seed,
                                   num_train_epochs=val_num_train_epoch, 
-                                  logging_strategy='no')
+                                  logging_strategy='no',
+                                  disable_tqdm=disable_tqdm)
     
     # Meta train 
     global_step = 0
     # set_seed(seed)
-    best_state_dict = meta_learner.model.state_dict()
+    best_state_dict = {k :deepcopy(meta_learner.model.state_dict()) for k in test_params }
     start = time.time()
     for epoch in range(meta_args.meta_epoch):
         train = MetaLoader(df_train, num_task = train_num_task,  max_len=max_len,
@@ -319,26 +364,38 @@ def meta_train(meta_learner, meta_args, df_train, df_test, tokenizer, max_len,
                 print('Step:', global_step, '\ttraining Acc:', acc)
                 print("-----------------Testing Mode-----------------")
                 
-                t_model = deepcopy(meta_learner.model)
-                trainer, results = quick_eval(t_model, train_ds, test_ds, test_args,
-                                            metric_func=compute_metrics, eval_while_train=False)
-                test_f1 = round(results['macro avg']['f1-score'],3)
-                test_acc = round(results['accuracy'],3)
+                # compute results on each size of set K 
+                for k_val, df_test in test_params.items():
+                    print("...Validating for k_val {}:".format(k_val))
+                    set_seed(seed*5)
+                    # create corresponding test set
+                    test = MetaLoader(df_test, num_task = test_num_task, max_len=max_len,
+                          k_support=k_val, k_query=k_val, 
+                          tokenizer = tokenizer, batch_mode='fixed', verbose=True)
+                    
+                    train_ds, test_ds = create_meta_batches(test, 1, split_to_train_test=True)
+                    
+                    t_model = deepcopy(meta_learner.model)
+                    trainer, results = quick_eval(t_model, train_ds, test_ds, test_args,
+                                                metric_func=compute_metrics, eval_while_train=False)
+                    test_f1 = round(results['macro avg']['f1-score'],3)
+                    test_acc = round(results['accuracy'],3)
 
-                # update if better results 
-                if (not validation_f1) or (test_f1 >= max(validation_f1)): 
-                    best_state_dict = deepcopy(meta_learner.model.state_dict())
-                    print("Update best params at step", global_step)
-                
-                validation_results.append(results)
-                validation_f1.append(test_f1)
-                validation_acc.append(test_acc)
+                    # update if better results 
+                    if (not validation_f1[k_val]) or (test_f1 >= max(validation_f1[k_val])): 
+                        best_state_dict[k_val] = deepcopy(meta_learner.model.state_dict())
+                        print("Update best params at step {} for k_val {}".format(global_step, k_val))
 
-                del trainer, results, t_model, test_f1
-                gc.collect()
-                torch.cuda.empty_cache()
-                # reset seed to ensure reproducibility
-                set_seed(seed + global_step)
+                    validation_results[k_val].append(results)
+                    validation_f1[k_val].append(test_f1)
+                    validation_acc[k_val].append(test_acc)
+                    
+                    del test, train_ds, test_ds, t_model, trainer, results, test_f1, test_acc
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    
+#                     # reset seed to ensure reproducibility
+#                     set_seed(seed + global_step)
                 
             global_step += 1
 
