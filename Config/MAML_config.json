@@ -3,27 +3,26 @@
 	"train_filename": "meta_9_0.2_2000_train.csv",
 	"tokenizer_args": {
 		"tokenizer_type": "roberta",
-		"max_len":128,
+		"max_len":60,
 		"truncation": true
 	},
 	"seeds": [123, 987],
 	"K_values": [100, 200],
-	"K_test": 200,
-	"base_args": {
+	"K_test": 50,
+	"learner_class": "MAML_Learner",
+	"learner_args": {
 		"num_labels":2,
-        "meta_epoch":5,
+        "meta_epoch":2,
 	    "outer_batch_size":10,
 	    "inner_batch_size":10,
 	    "outer_update_lr": 5e-5,
 	    "inner_update_lr":1e-5,
 	    "inner_update_step":2,
-	    "inner_update_step_eval":40,
-	    "model_class":"../../Model/RobertaForSequenceClassification/roberta_base",
-	    "num_task_train":500,
-	    "num_task_test": 5 
+	    "inner_update_step_eval":2,
+	    "model_class":"roberta",
+	    "model_dir":"../../Model/RobertaForSequenceClassification/roberta_base"
     },
-	"learner_class": "MAML_Learner",
-	"learner_args": {
+	"meta_train_args": {
 		"train_num_task": 5, 
 		"train_k_support": 8, 
 		"train_k_query": 2, 
@@ -32,13 +31,15 @@
 		"step_interval": 5, 
 		"val_num_train_epoch": 3, 
 		"return_best_statedict": true, 
-		"skip_validation": false
+		"skip_validation": false,
+		"disable_tqdm":true
 	},
-	"test_args": {
+	"meta_test_args": {
 		"output_dir": "./",
 		"save_strategy": "no",
 		"num_train_epochs": 1,
-		"logging_strategy": "no" 
+		"logging_strategy": "no", 
+		"disable_tqdm":true
 	},
 	"save_dir": "../../Results"
 	},
@@ -51,10 +52,11 @@
 		"max_len":320,
 		"truncation": true
 	},
-	"seeds": [123,987],
-	"K_values": [100,500,1000],
-	"K_test": 200,
-	"base_args": {
+	"seeds": [123],
+	"K_values": [100, 500],
+	"K_test": 2000,
+	"learner_class": "MAML_Learner",
+	"learner_args": {
 		"num_labels":2,
         "meta_epoch":5,
 	    "outer_batch_size":10,
@@ -62,30 +64,29 @@
 	    "outer_update_lr": 5e-5,
 	    "inner_update_lr":1e-5,
 	    "inner_update_step":2,
-	    "inner_update_step_eval":40,
-	    "model_class":"../../Model/RobertaForSequenceClassification/roberta_base",
-	    "num_task_train":500,
-	    "num_task_test": 5 
+	    "inner_update_step_eval":2,
+	    "model_class":"roberta",
+	    "model_dir":"../../Model/RobertaForSequenceClassification/roberta_base"
     },
-	"learner_class": "MAML_Learner",
-	"learner_args": {
+	"meta_train_args": {
 		"train_num_task": 50, 
-		"train_k_support": 80, 
+		"train_k_support": 30, 
 		"train_k_query": 20, 
 		"test_num_task": 1, 
 		"eval_while_train": false, 
 		"step_interval": 5, 
 		"val_num_train_epoch": 3, 
 		"return_best_statedict": true, 
-		"skip_validation": false
+		"skip_validation": false,
+		"disable_tqdm":true
 	},
-	"test_args": {
+	"meta_test_args": {
 		"output_dir": "./",
 		"save_strategy": "no",
 		"num_train_epochs": 5,
-		"logging_strategy": "no" 
+		"logging_strategy": "no", 
+		"disable_tqdm":true
 	},
 	"save_dir": "../../Results"
 	}
-
 }
