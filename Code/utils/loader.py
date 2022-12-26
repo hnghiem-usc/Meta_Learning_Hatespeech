@@ -38,10 +38,11 @@ import logging
 # number of tasks to sample, size of query, size of support, and argumentns for tokenzier
 class MetaLoader(Dataset): 
     def __init__(self, df: pd.DataFrame, num_task, k_support, k_query,tokenizer, max_len=128, truncation=True,
-                 domain_var='domain', text_var='text_std', label_var='label_bin', test_domains=[] ,
+                 domain_var='domain', text_var='text', label_var='labels', test_domains=[] ,
                  batch_mode = 'random', label_dict={'positive':1, 'negative':0}, verbose=False,seed=123):
         
         self.data = dict()
+        print(df.columns)
         for d in df[domain_var].unique():
             self.data[d]  = df.loc[df[domain_var] == d, :].sample(frac=1).to_dict(orient='records')
         self.domain_list = list(self.data.keys())
@@ -213,22 +214,45 @@ def create_meta_batches(loader:MetaLoader, batch_size: int, is_shuffle=False, sp
     return batches
 
 
-def create_test_sets(df:pd.DataFrame, k_vals:list, k_test, holdout_set, seed:int):
+def create_test_sets(df:pd.DataFrame, k_vals:list, holdout_sets:list, test_sets:list, seed:int, \
+                     select_vars:list, tokenize_function=None, k_test:int=0, to_torch=False):
     '''
     Divide general dataset to return all necessary datasets for meta training
+    @param select_vars, tokenize_function: arguments to use for the to_torch_dataset function
     '''
-    df_train = df[~df.domain.isin([holdout_set])]
-    df_test_all = df[df.domain.isin([holdout_set])]
-    df_test = df_test_all.sample(k_test, random_state=seed)
+    holdout_sets += test_sets 
+    holdout_sets = list(set(holdout_sets))
+    if not test_sets or test_sets is None or test_sets == ['']:
+        print("WARNING: test sets cannot be empty, automatically default to holdout_sets")
+        test_sets = holdout_sets
+    test_sets = list(set(test_sets))
+    
+    for s in holdout_sets:
+        if s not in df.domain.unique() : print("Domain {} NOT in available domains.CHECK!".format(s))
+    
+    df_train = df[~df.domain.isin(holdout_sets)]
+    df_test_all = df[df.domain.isin(test_sets)]
+    
+    val_data = dict()
+    if k_test == 0:
+        df_test = df_test_all.copy() 
+        return df_train, df_test, val_data
+    else:
+        df_test = pd.concat([df_test_all[df_test_all.domain == domain].sample(k_test, random_state=seed) for domain in test_sets])
+        
     print("Training Domains:", df_train.domain.unique(), df_train.shape)
-    print("Testing Domains:", df_test_all.domain.unique(), df_test_all.shape)
-
-    val_data=dict() 
-    for k in k_vals: 
-        # enforce disjointness between train and test set 
-        df_val = df_test_all.loc[~df_test_all.id.isin(df_test.id)].sample(k, random_state=seed)
-        df_val = pd.concat([df_val, df_val])   
-        val_data[k] = df_val
+    print("Holdout Domains:", holdout_sets)
+    print("Testing Domains:", df_test.domain.unique(), df_test.shape)
+    
+    # Save the validation data sets for each domain and k_val
+    for s in test_sets:
+        k_dict = dict()
+        for k in k_vals: 
+            # enforce disjointness between train and test set 
+            df_val = df_test_all.loc[~df_test_all.id.isin(df_test.id) & (df_test_all.domain == s)].sample(k, random_state=seed)
+            df_val = pd.concat([df_val, df_val]) # duplicate for meta training  
+            k_dict[k] = to_torch_Dataset(df_val, select_vars, tokenize_function) if to_torch else df_val 
+        val_data[s] = k_dict
     
     return df_train, df_test, val_data
         
@@ -315,7 +339,7 @@ def quick_eval(model, train_set, test_set, training_args, label_var='labels', re
 def meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
                train_num_task, train_k_support, train_k_query,  
 #                test_num_task:int, test_k_supports:list, test_k_query:int, 
-               test_num_task:int, test_params: dict, 
+               test_num_task:int, test_datasets: dict, 
                eval_while_train, val_metric_function, step_interval,
                val_num_train_epoch, skip_validation=False, return_best_statedict=False,
                disable_tqdm=True, seed=123):
@@ -324,14 +348,13 @@ def meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
     '''
     # set_seed(seed)
     acc_all_train = []
-    acc_all_test = []
     idx_array = []
     
-    validation_results = {k: [] for k in test_params}
-    validation_f1 = deepcopy(validation_results)
-    validation_acc = deepcopy(validation_results)
-
-    output_dict = {seed: {'report': (), 'best_statedict': None}}
+    validation_f1 =  {domain: {k: [] for k in v } for domain, v in test_datasets.items()}
+    validation_acc = deepcopy(validation_f1)
+    best_state_dict = deepcopy(validation_f1)
+    output_dict = {seed: {'best_statedict': None}}
+    
     # Create test loader
     test_args = TrainingArguments(output_dir = './',
                                   save_strategy='no',
@@ -345,7 +368,6 @@ def meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
     # Meta train 
     global_step = 0
     # set_seed(seed)
-    best_state_dict = {k :deepcopy(meta_learner.model.state_dict()) for k in test_params }
     start = time.time()
     for epoch in range(meta_args.meta_epoch):
         train = MetaLoader(df_train, num_task = train_num_task,  max_len=max_len,
@@ -362,73 +384,73 @@ def meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
             if (not skip_validation and global_step % step_interval == 0) or (global_step == last_step - 1):
                 idx_array.append(global_step)
                 print('Step:', global_step, '\ttraining Acc:', acc)
-                print("-----------------Testing Mode-----------------")
+                print("-----------------Meta Testing Mode-----------------")
                 
                 # compute results on each size of set K 
-                for k_val, df_test in test_params.items():
-                    print("...Validating for k_val {}:".format(k_val))
-                    set_seed(seed*5)
-                    # create corresponding test set
-                    test = MetaLoader(df_test, num_task = test_num_task, max_len=max_len,
-                          k_support=k_val, k_query=k_val, 
-                          tokenizer = tokenizer, batch_mode='fixed', verbose=True)
-                    
-                    train_ds, test_ds = create_meta_batches(test, 1, split_to_train_test=True)
-                    
-                    t_model = deepcopy(meta_learner.model)
-                    trainer, results = quick_eval(t_model, train_ds, test_ds, test_args,
-                                                metric_func=compute_metrics, eval_while_train=False)
-                    test_f1 = round(results['macro avg']['f1-score'],3)
-                    test_acc = round(results['accuracy'],3)
+                for domain, test_dict in test_datasets.items(): 
+                    print("---------- Evaluating on Domain {} ----------".format(domain.upper()))
+                    for k_val, test_dataset in test_dict.items():
+                        print("...Validating for k_val {}:".format(k_val))
+                        set_seed(seed*5)
+                        # create corresponding test set
+                        test = MetaLoader(test_dataset, num_task = test_num_task, max_len=max_len,
+                              k_support=k_val, k_query=k_val, 
+                              tokenizer = tokenizer, batch_mode='fixed', verbose=True)
 
-                    # update if better results 
-                    if (not validation_f1[k_val]) or (test_f1 >= max(validation_f1[k_val])): 
-                        best_state_dict[k_val] = deepcopy(meta_learner.model.state_dict())
-                        print("Update best params at step {} for k_val {}".format(global_step, k_val))
+                        train_ds, test_ds = create_meta_batches(test, 1, split_to_train_test=True)
 
-                    validation_results[k_val].append(results)
-                    validation_f1[k_val].append(test_f1)
-                    validation_acc[k_val].append(test_acc)
-                    
-                    del test, train_ds, test_ds, t_model, trainer, results, test_f1, test_acc
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    
-#                     # reset seed to ensure reproducibility
-#                     set_seed(seed + global_step)
+                        t_model = deepcopy(meta_learner.model)
+                        trainer, results = quick_eval(t_model, train_ds, test_ds, test_args,
+                                                    metric_func=compute_metrics, eval_while_train=False)
+                        test_f1 = round(results['macro avg']['f1-score'],3)
+                        test_acc = round(results['accuracy'],3)
+                        validation_f1[domain][k_val].append(test_f1)
+                        validation_acc[domain][k_val].append(test_acc)
+
+                        # update if better results 
+                        if (not validation_f1[domain][k_val]) or (test_f1 >= max(validation_f1[domain][k_val])): 
+                            best_state_dict[domain][k_val] = deepcopy(meta_learner.model.state_dict())
+                            print("Update best params at step {} for k_val {}".format(global_step, k_val))
+
+                        
+
+                        del test, train_ds, test_ds, t_model, trainer, results, test_f1, test_acc
+                        gc.collect()
+                        torch.cuda.empty_cache()
                 
             global_step += 1
-
-        # Final evaluation
                 
     print(acc_all_train)
     print("DURATION:", time.time() - start)
     print("GLOBAL STEP:", global_step, "LAST STEP", last_step)
 
     # compile output
-    output_dict[seed]['report'] = (acc_all_train, validation_results , idx_array, validation_f1, validation_acc)
+    output_dict[seed]['train_acc'] = acc_all_train 
+    output_dict[seed]['idx_array'] = idx_array
+    output_dict[seed]['val_f1'] = validation_f1
+    output_dict[seed]['val_acc'] = validation_acc
     if return_best_statedict:
         output_dict[seed]['best_statedict'] = best_state_dict
 
     return output_dict
 
 
-def binary_train(model, epochs, batch_size, eval_interval, train_dataset, val_dataset, test_dataset,\
+def binary_train(model, epochs, batch_size, eval_interval, train_dataset, val_dataset, test_datasets:dict,\
                  test_args, seed, return_best_statedict=True): 
     '''
     Train full loops with BINARY models (e.g.: roberta)
+    @param Test_datasets: dict, of form {domain: {k_val: df}} as results of the create_test_dict function
     '''
     # parameters to keep track of training steps 
     shape = len(train_dataset)
     max_steps = ceil(epochs*shape/batch_size)
-    # steps_to_eval = ceil(number_of_steps/number_of_intervals)
-
-    best_state_dict = model.state_dict()
     train_acc = []
-    validation_f1 = []
-    validation_acc = []
-    output_dict = {seed: {'report': (), 'best_statedict': None}}
-
+    # steps_to_eval = ceil(number_of_steps/number_of_intervals)
+    validation_f1 =  {domain: {k: [] for k in v } for domain, v in test_datasets.items()}
+    validation_acc = deepcopy(validation_f1)
+    best_state_dict = deepcopy(validation_f1)
+    output_dict = {seed: {'best_statedict': None}}
+    
     train_sampler = DataLoader(train_dataset, batch_size=batch_size)
     global_step = 0
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -452,7 +474,8 @@ def binary_train(model, epochs, batch_size, eval_interval, train_dataset, val_da
             # train and eval results on the test set 
             if global_step % eval_interval == 0 or global_step >= max_steps - 1:
                 # eval on val set
-                if val_dataset is not None: 
+                if val_dataset  : 
+                    set_seed(seed * 5)
                     v_model = deepcopy(model)
                     v_trainer = Trainer(v_model, compute_metrics=compute_metrics,\
                                 args = TrainingArguments(disable_tqdm=True, \
@@ -465,30 +488,36 @@ def binary_train(model, epochs, batch_size, eval_interval, train_dataset, val_da
                     gc.collect()
                     torch.cuda.empty_cache()
 
-                # eval on test set f
-                print("Eval on Test set...")
-                t_model = deepcopy(model)
-                t_trainer, t_results = quick_eval(t_model, test_dataset, test_dataset, test_args,
-                                            metric_func=compute_metrics, eval_while_train=False)
-                test_f1 = round(t_results['macro avg']['f1-score'],3)
-                test_acc = round(t_results['accuracy'],3)
-                validation_f1.append(test_f1)
-                validation_acc.append(test_acc)
+                # eval on each of the test set
+                for domain, test_dict in test_datasets.items():
+                    print("---------- Evaluating on Domain {} ----------".format(domain.upper()))
+                    for k_val, test_dataset in test_dict.items(): 
+                        set_seed(seed * 5)
+                        t_model = deepcopy(model)
+                        t_trainer, t_results = quick_eval(t_model, test_dataset, test_dataset, test_args,
+                                                    metric_func=compute_metrics, eval_while_train=False)
+                        test_f1 = round(t_results['macro avg']['f1-score'],3)
+                        test_acc = round(t_results['accuracy'],3)
+                        validation_f1[domain][k_val].append(test_f1)
+                        validation_acc[domain][k_val].append(test_acc)
 
-                # retain datedict with best f1
-                if (not validation_f1) or (test_f1 >= max(validation_f1)): 
-                    best_state_dict = deepcopy(t_trainer.model.state_dict())
-                    print("Update best params at step", global_step)
+                        # retain datedict with best f1
+                        if (not validation_f1[domain][k_val]) or (test_f1 >= max(validation_f1[domain][k_val])): 
+                            best_state_dict[domain][k_val] = deepcopy(t_trainer.model.state_dict())
+                            print("Update best params at step", global_step)
 
-                del t_model, t_trainer, t_results
-                gc.collect()
-                torch.cuda.empty_cache()
-
-            output_dict[seed]['report'] = (train_acc, validation_f1, validation_acc)
-            if return_best_statedict:
-                output_dict[seed]['best_statedict'] = best_state_dict
-
+                        del t_model, t_trainer, t_results, test_f1, test_acc
+                        gc.collect()
+                        torch.cuda.empty_cache()
             # update steps
             global_step += 1
+    
+    # tally all reports
+    output_dict[seed]['train_acc'] = train_acc
+    output_dict[seed]['val_f1'] =  validation_f1
+    output_dict[seed]['val_acc'] =  validation_acc
+    if return_best_statedict:
+        output_dict[seed]['best_statedict'] = best_state_dict
+
     print("Total number of steps", global_step)
     return output_dict
