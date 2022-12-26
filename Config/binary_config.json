@@ -7,8 +7,8 @@
 		"truncation": true
 	},
 	"seeds": [123, 987],
-	"K_values": [100, 115],
-	"K_test": 200,
+	"K_values": [55, 100],
+	"K_test": 100,
 	"train_epochs":1,
 	"batch_size": 16, 
 	"eval_interval": 10,
@@ -37,7 +37,13 @@
 		"logging_strategy":"no",
 		"disable_tqdm":true
     	},
-    "save_dir": "../../Results"
+    "save_dir": "../../Results", 
+    "statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123,100]
+    	},
+    "holdout_sets": [],
+    "test_sets": ["olid","trac"]
 	}, 
 "binary_basic": {
 	"data_dir": "../../Data/Meta_data/",
@@ -78,6 +84,12 @@
 		"logging_strategy":"no",
 		"disable_tqdm":true
     	},
-    "save_dir": "../../Results"
-	}
+ 	"save_dir": "../../Results", 
+    "statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123,100]
+    	},
+	"holdout_sets": [],
+    "test_sets": []
+}
 }

@@ -32,7 +32,7 @@
 		"val_num_train_epoch": 3, 
 		"return_best_statedict": true, 
 		"skip_validation": false,
-		"disable_tqdm":true
+		"disable_tqdm":false
 	},
 	"meta_test_args": {
 		"output_dir": "./",
@@ -41,7 +41,13 @@
 		"logging_strategy": "no", 
 		"disable_tqdm":true
 	},
-	"save_dir": "../../Results"
+	"save_dir": "../../Results",
+	"statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123,100]
+    	},
+    "holdout_sets": [],
+    "test_sets": ["olid","trac"]
 	},
 
 "MAML_basic": {
@@ -53,7 +59,7 @@
 		"truncation": true
 	},
 	"seeds": [123],
-	"K_values": [100, 500],
+	"K_values": [100],
 	"K_test": 2000,
 	"learner_class": "MAML_Learner",
 	"learner_args": {
@@ -87,6 +93,12 @@
 		"logging_strategy": "no", 
 		"disable_tqdm":true
 	},
-	"save_dir": "../../Results"
+	"save_dir": "../../Results",
+	"statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123,100]
+    	},
+    "holdout_sets": [],
+    "test_sets": []
 	}
 }
