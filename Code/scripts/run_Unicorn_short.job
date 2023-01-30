@@ -1,0 +1,25 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16GB
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:p100:1
+#SBATCH --time=10:00:00
+
+module load conda
+
+cd "/scratch1/hnghiem/Meta_Learning_Hatespeech/Code/scripts"
+source activate metahate
+
+declare -a arr=("trac" "davidson")
+
+for h in "${arr[@]}"; do \
+        python run_Unicorn.py --config_file  ../../Config/Unicorn_binary_config.json --config_key test --test_set $h --label_vars 'label_bin' 
+done;
+
+rm -rf runs
+
+conda deactivate
+
