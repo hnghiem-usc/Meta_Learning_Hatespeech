@@ -1,0 +1,106 @@
+{"test": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_10_2000_2000_bin_train.csv",
+	"config_filename":"meta_10_label_config.json",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len":128,
+		"truncation": true
+	},
+	"seeds": [123, 987],
+	"K_values": [100],
+	"K_test": 500,
+	"learner_class": "MAML_Unicorn",
+	"learner_args": {
+		"encoder_class":"roberta",
+        "encoder_dir":"../../Model/RobertaModel/",
+		"num_classifier": 1, 
+		"inner_update_lr":5e-5,
+		"outer_update_lr":1e-5,
+		"inner_batch_size":10, 
+		"outer_batch_size":10,
+		"inner_update_step":5,
+		"inner_update_step_eval":5, 
+		"loss_weights": [1.0, 0.0], 
+		"meta_epoch": 1,
+		"p_threshold": 0.5
+     	},
+	"meta_train_args": {
+		"train_num_task":100, 
+		"train_k_support":100,
+		"train_k_query":50,  
+        "test_num_task":1, 
+        "val_learning_rate":5e-5, 
+        "val_num_train_epoch":3, 
+        "val_report_interval":10,
+        "val_batch_size":10, 
+        "train_verbose":true
+	},
+	"meta_test_args": {
+        "learning_rate":1e-4, 
+        "num_epochs":3, 
+        "report_interval":10, 
+        "batch_size": 20
+	},
+	"save_dir": "../../Results",
+	"statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123, -1]
+    	},
+    "holdout_sets": [],
+    "test_sets": []
+	}, 
+
+"basic": {
+	"data_dir": "../../Data/Meta_data/",
+	"train_filename": "meta_10_2000_2000_bin_train.csv",
+	"config_filename":"meta_10_label_config.json",
+	"tokenizer_args": {
+		"tokenizer_type": "roberta",
+		"max_len":256,
+		"truncation": true
+	},
+	"seeds": [101, 211, 307, 401, 503],
+	"K_values": [100, 200, 500],
+	"K_test": 2000,
+	"learner_class": "MAML_Unicorn",
+	"learner_args": {
+		"encoder_class":"roberta",
+        "encoder_dir":"../../Model/RobertaModel/",
+		"num_classifier": 1, 
+		"inner_update_lr":5e-5,
+		"outer_update_lr":1e-5,
+		"inner_batch_size":10, 
+		"outer_batch_size":10,
+		"inner_update_step":5,
+		"inner_update_step_eval":5, 
+		"loss_weights": [1.0, 0.0], 
+		"meta_epoch": 1,
+		"p_threshold": 0.5
+     	},
+	"meta_train_args": {
+		"train_num_task":100, 
+		"train_k_support":100,
+		"train_k_query":50,  
+        "test_num_task":1, 
+        "val_learning_rate":5e-5, 
+        "val_num_train_epoch":3, 
+        "val_report_interval":10,
+        "val_batch_size":10, 
+        "train_verbose":true
+	},
+	"meta_test_args": {
+        "learning_rate":1e-4, 
+        "num_epochs":3, 
+        "report_interval":10, 
+        "batch_size": 20
+	},
+	"save_dir": "../../Results",
+	"statedict_dir":"../../Parameters/",
+    "statedict_to_save":{
+    	"trac":[123, -1]
+    	},
+    "holdout_sets": [],
+    "test_sets": []
+	}
+}
