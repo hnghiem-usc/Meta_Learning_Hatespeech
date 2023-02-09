@@ -16,6 +16,8 @@ from copy import deepcopy
 import gc
 from sklearn.metrics import accuracy_score, f1_score
 
+from loader import move_to_device
+
 model_lookup = {'roberta':RobertaModel, 'bert':BertModel}
 
 
@@ -51,11 +53,6 @@ def process_prediction(logits_all, labels_all, task_config, p_threshold=0.5, ret
     
     return (results, preds_all) if return_preds else (results)
 
-
-def move_to_device(model:dict, device):
-    for key, component in model.items():
-        model[key] = component.to(device)
-    return model
 
 #############################  MULTI_TASK META LEARNER  #############################
 class Multi_Meta_Learner(nn.Module):

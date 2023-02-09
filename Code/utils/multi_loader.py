@@ -17,6 +17,8 @@ def meta_quick_eval(model, meta_loader, learning_rate, num_epochs=1, batch_size=
     task_config = meta_loader[0][2]
     
     fast_model = model.create_fast_model(model.components, task_config)
+    fast_model = move_to_device(fast_model, self.device)
+
     fast_optimizer = AdamW([{'params': fast_model[c].parameters()} for c in fast_model], lr=learning_rate)
     
     # Training
@@ -62,6 +64,7 @@ def multi_meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
     
     Compatible with domains with multiple classes and/or multiple classification tasks (hate speech + target)
     """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # set_seed(seed)
     acc_all_train = []
 #     idx_array = []
@@ -111,7 +114,8 @@ def multi_meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
                                                              batch_size = val_batch_size,
                                                              learning_rate=val_learning_rate,
                                                              num_epochs = val_num_train_epoch, 
-                                                             report_interval= val_report_interval)
+                                                             report_interval= val_report_interval, 
+                                                             device=device)
                         # compile results for all tasks 
                         test_f1, test_acc = [], []
                         for task, result in report.items():

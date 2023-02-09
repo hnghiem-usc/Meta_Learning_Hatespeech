@@ -346,6 +346,11 @@ def to_torch_Dataset(df:pd.DataFrame, select_vars:list, tokenize_function):
     return ds
 
 ############################## TRAINING HELPER FUNCTIONS ##############################
+def move_to_device(model:dict, device):
+    for key, component in model.items():
+        model[key] = component.to(device)
+    return model
+
 
 def quick_eval(model, train_set, test_set, training_args, label_var='labels', require_training=True,
                eval_while_train = False,
