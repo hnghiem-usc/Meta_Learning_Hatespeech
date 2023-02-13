@@ -114,7 +114,7 @@ def run_experiment(data_dir, train_filename, config_filename, holdout_sets, test
                 test_metaloader = MetaLoader(df_val_test, num_task = 1, k_support=K_val, k_query=K_test,
                                              max_len=max_len, tokenizer = tokenizer, label_config=label_config,   
                                              batch_mode = 'fixed', label_vars=label_vars, test_domains=None)
-                _, best_results = meta_quick_eval(best_model, test_metaloader, **meta_test_args )
+                _, best_results = meta_quick_eval(best_model, test_metaloader, **meta_test_args, include_scheduler=True)
                 
                 print("Testing result when trained on K_val = {}".format(K_val))
                 for task, result in best_results.items():
@@ -132,16 +132,14 @@ def run_experiment(data_dir, train_filename, config_filename, holdout_sets, test
                 K_results[K_val] = final_output
 
                 del df_val_test, best_statedict, best_model, test_metaloader, best_results
-                gc.collect()
-                torch.cuda.empty_cache()
+                cleanup()
                 
             # append results for holdoutset
             seed_results[domain][seed] = K_results
             
         # clean up aftet colelcting results
         del df_train, df_test, val_data, args, learner, meta_output
-        gc.collect()
-        torch.cuda.empty_cache() 
+        cleanup()
         
     result_name = '_'.join([learner_class, config_key, *test_sets, 'result'])
     print(result_name)
