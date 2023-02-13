@@ -16,7 +16,7 @@ from copy import deepcopy
 import gc
 from sklearn.metrics import accuracy_score, f1_score
 
-from loader import move_to_device
+from loader import move_to_device, cleanup
 
 model_lookup = {'roberta':RobertaModel, 'bert':BertModel}
 
@@ -59,10 +59,6 @@ class Multi_Meta_Learner(nn.Module):
     def __init__(self):
         super().__init__()
         self.class_name = 'Multi_Meta_Learner'
-    
-    def cleanup(self): 
-        gc.collect()
-        torch.cuda.empty_cache()
                 
     def forward_fast_model(self): 
         return None
@@ -173,7 +169,7 @@ class MAML_Unicorn(Multi_Meta_Learner):
         batch = tuple(t.to(device) for t in batch)
         input_ids, attention_mask, *label_ids = batch
         
-#         print("FAST_FORWARD_MODEL IS ON GPU? ", next(model['encoder'].parameters()).is_cuda ) ##!!!
+#         print("FAST_FORWARD_MODEL IS ON GPU? ",next(model['encoder'].parameters())[-1].is_cuda ) ##!!!
         outputs = model['encoder'](input_ids = input_ids, attention_mask=attention_mask)
         sequence_output = outputs[0]
 #         print('outputs shape', outputs[0].shape)
@@ -211,7 +207,8 @@ class MAML_Unicorn(Multi_Meta_Learner):
                         is_training=True, optimize_params=True,
                         p_threshold = 0.5, 
                         base_gradients=None,
-                        step_count=None
+                        step_count=None, 
+                        scheduler=None
                        ):
         """
         Train the fast model using all the data in data loader 
@@ -243,6 +240,7 @@ class MAML_Unicorn(Multi_Meta_Learner):
                 
                 if optimize_params: 
                     optimizer.step()
+                    if scheduler: scheduler.step()
                 optimizer.zero_grad() 
             
         return loss_array, accuracy_array, f1_array
@@ -264,17 +262,17 @@ class MAML_Unicorn(Multi_Meta_Learner):
         for step, batch in enumerate(data_loader):
             losses, logits, labels = MAML_Unicorn.forward_fast_model(batch, task_config, model, device)
             _, preds = process_prediction(logits, labels, task_config, p_threshold, return_preds=True)
+            
             for i, pred in enumerate(preds):
                 if len(pred.shape) == 1: 
                     preds_all = [np.hstack([preds_all[i],pred]) for i, pred in enumerate(preds)]
-                    labels_all = [np.hstack([labels_all[i],label]) for i, label in enumerate(labels)]
+                    labels_all = [np.hstack([labels_all[i],label.cpu()]) for i, label in enumerate(labels)]
                 else: 
                     preds_all = [np.vstack([preds_all[i],pred]) for i, pred in enumerate(preds)]
-                    labels_all = [np.vstack([labels_all[i],label]) for i, label in enumerate(labels)]       
+                    labels_all = [np.vstack([labels_all[i],label.cpu()]) for i, label in enumerate(labels)]       
             
         del losses, logits, labels, preds    
-        gc.collect() 
-        torch.cuda.empty_cache() 
+        cleanup()
         
         return preds_all, labels_all
     
@@ -338,9 +336,13 @@ class MAML_Unicorn(Multi_Meta_Learner):
             [query_f1[i].append(np.mean(f1)) for i, f1 in enumerate(q_f1)]
             self.collect_gradients(all_gradients, fast_gradients)
             
+            # Check if gradient accumulates on correct device 
+            # print("FAST_GRADIENTS IS ON GPU? ", fast_gradients['fc_0'][-1].is_cuda ) ##!!!
+            # print("BASE_GRADIENTS IS ON GPU? ", all_gradients['fc_0'][-1].is_cuda ) ##!!!
+
             del fast_model, fast_optimizer, support_dataloader, query_dataloader, \
                 s_losses, s_accuracies, s_f1, q_losses, q_accuracies, q_f1
-            self.cleanup()
+            cleanup()
                     
             print("Query accuracies:{}\nQuery F1s: {}".format(query_accuracies, query_f1))
         
@@ -355,11 +357,14 @@ class MAML_Unicorn(Multi_Meta_Learner):
                             param.grad = all_gradients[key][i]
 
                         else:
-#                             param.grad = all_gradients[key][i] / float(len(batch_tasks))
-                            param.grad = all_gradients[key][i] 
+                            param.grad = all_gradients[key][i] / float(len(batch_tasks))
+#                             param.grad = all_gradients[key][i] 
 
     
             self.optimizer.step()
             self.optimizer.zero_grad()
+            
+        del fast_gradients, all_gradients
+        cleanup()
         
         return query_accuracies

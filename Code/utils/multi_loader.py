@@ -2,9 +2,24 @@
 
 from loader import * 
 
+def create_scheduler(optimizer, N, num_epochs, batch_size, eta_min=1e-6, verbose=False):
+    """
+    Create scheduler for the learning rate
+    
+    Params:
+    optimizer: pyTorch optimizer 
+    N: int, size of dataset 
+    
+    Returns:
+    Cosine Anneal schedulers with given parameters
+    """
+    T_max = ceil(N/batch_size) * num_epochs
+    return CosineAnnealingLR(optimizer, T_max=T_max, eta_min=1e-6, verbose=verbose)
+
+
 def meta_quick_eval(model, meta_loader, learning_rate, num_epochs=1, batch_size=10,
                    device=torch.device('cpu'), p_threshold=None, loss_weights=None,
-                   report_interval=5, report_only=True ):
+                   report_interval=5, report_only=True, include_scheduler=False):
     """
     Train, evaluate and collect results in standard formats
     
@@ -17,16 +32,19 @@ def meta_quick_eval(model, meta_loader, learning_rate, num_epochs=1, batch_size=
     task_config = meta_loader[0][2]
     
     fast_model = model.create_fast_model(model.components, task_config)
-    fast_model = move_to_device(fast_model, self.device)
-
-    fast_optimizer = AdamW([{'params': fast_model[c].parameters()} for c in fast_model], lr=learning_rate)
+    fast_model = move_to_device(fast_model, device)
     
+    fast_optimizer = AdamW([{'params': fast_model[c].parameters()} for c in fast_model], lr=learning_rate)
+    fast_scheduler = None
+    if include_scheduler: fast_scheduler = create_scheduler(fast_optimizer, len(support), num_epochs, batch_size)
+        
     # Training
     for epoch in range(num_epochs): 
         train_losses, train_acc, train_f1 = model.train_fast_model(fast_model, fast_optimizer, train_loader, task_config, 
                                   is_training=True, optimize_params=True, device=device, 
                                   p_threshold =p_threshold if p_threshold is not None else model.p_threshold,
-                                  loss_weights=loss_weights if loss_weights is not None else model.loss_weights
+                                  loss_weights=loss_weights if loss_weights is not None else model.loss_weights, 
+                                  scheduler = fast_scheduler
                                   )
         train_losses = [round(loss,4) for i, loss in enumerate(train_losses) if i%report_interval == 0] 
         train_acc = [acc for i, acc in enumerate(train_acc) if i%report_interval == 0] 
@@ -115,7 +133,7 @@ def multi_meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
                                                              learning_rate=val_learning_rate,
                                                              num_epochs = val_num_train_epoch, 
                                                              report_interval= val_report_interval, 
-                                                             device=device)
+                                                             device=device, include_scheduler=True)
                         # compile results for all tasks 
                         test_f1, test_acc = [], []
                         for task, result in report.items():
@@ -136,8 +154,7 @@ def multi_meta_train(meta_learner, meta_args, df_train, tokenizer, max_len,
                             
                         
                         del test_metaloader, fast_model, report, test_f1, test_acc
-                        gc.collect()
-                        torch.cuda.empty_cache()
+                        cleanup()
                 
             global_step += 1
                 

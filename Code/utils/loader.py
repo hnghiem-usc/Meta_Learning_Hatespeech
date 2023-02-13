@@ -18,6 +18,7 @@ import gc
 
 from torch.utils.data import TensorDataset
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 
 from transformers import RobertaTokenizer, RobertaForSequenceClassification, BertForSequenceClassification
@@ -351,6 +352,9 @@ def move_to_device(model:dict, device):
         model[key] = component.to(device)
     return model
 
+def cleanup(): 
+    gc.collect()
+    torch.cuda.empty_cache()
 
 def quick_eval(model, train_set, test_set, training_args, label_var='labels', require_training=True,
                eval_while_train = False,
