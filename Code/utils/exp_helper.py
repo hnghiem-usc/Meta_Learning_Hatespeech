@@ -1,6 +1,7 @@
 import json
 from transformers import RobertaTokenizer, BertTokenizer 
 from multi_learner import MAML_Unicorn
+from special_learner import Special_Learner
 
 def create_tokenizer(tknz_args:dict):
     if tknz_args['tokenizer_type'] == 'roberta': 
@@ -17,5 +18,5 @@ def save_results(result, filename,  save_dir):
     
     
 def get_learner_lookup():
-    learner_lookup = {'MAML_Unicorn': MAML_Unicorn}
+    learner_lookup = {'MAML_Unicorn': MAML_Unicorn, 'Special_Learner':Special_Learner}
     return learner_lookup

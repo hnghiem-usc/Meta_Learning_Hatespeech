@@ -1,5 +1,5 @@
 # UDATED 12/31/2022: MODIFIED LOADER TO BE COMPATIBLE WITH MULTI-TASK (LABEL_ORIG, LABEL_TARGET) AND MULTI-LABEL SETTING
-
+# UPDATE 02/17/2023: MODIFIFED LOADER S.T. DISJOINT IS COMPATIBLE WITH MLDG-STYLE EPISODES
 import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
@@ -26,7 +26,7 @@ from transformers import TrainingArguments, Trainer
 
 from datasets import load_dataset, load_metric, Dataset as hg_Dataset
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score, classification_report, f1_score
-from math import ceil
+from math import ceil, floor
 
 
 
@@ -55,7 +55,26 @@ def convert_label_format(x: list):
         samples = [l[1:-1].split(',') for l in x]
         labels = [[int(l) for l in label] for label in samples]
         return labels
+    
 
+def loop_iterable(iterable):
+    while True:
+        yield from iterable
+        
+
+def create_scheduler(optimizer, N, num_epochs, batch_size, eta_min=1e-6, verbose=False):
+    """
+    Create scheduler for the learning rate
+    
+    Params:
+    optimizer: pyTorch optimizer 
+    N: int, size of dataset 
+    
+    Returns:
+    Cosine Anneal schedulers with given parameters
+    """
+    T_max = ceil(N/batch_size) * num_epochs
+    return CosineAnnealingLR(optimizer, T_max=T_max, eta_min=1e-6, verbose=verbose)
 
 # Craete a custom dataset loader that returns a batch of [support-query] set
 # Requires parameters to control the data in each batch: 
@@ -159,8 +178,9 @@ class MetaLoader(Dataset):
         for i in range(self.num_task):
             test_domain =  random.choice(self.domain_list)
             train_domains = tuple(set(self.domain_list) - set([test_domain]))
-            
-            sample_train = [random.choice(self.data[random.choice(train_domains)]) for i in range(self.k_support)]
+            train_domain = random.choice(train_domains)
+#             print(test_domain, train_domains)
+            sample_train = [random.choice(self.data[train_domain]) for i in range(self.k_support)]
             sample_test  = [random.choice(self.data[test_domain]) for i in range(self.k_query)] 
             self.support.append(sample_train)     
             self.query.append(sample_test)
@@ -209,7 +229,8 @@ class MetaLoader(Dataset):
                 label_ls = torch.tensor(label_ls)
                 label_array.append(label_ls)
                 output[label_var] = label_ls
-            if (self.batch_mode == 'joint' or  self.batch_mode == 'fixed') and  label_var in self.label_config[sample['domain']]: 
+            if label_var in self.label_config[sample['domain']]:
+#             if (self.batch_mode == 'joint' or  self.batch_mode == 'fixed') and  label_var in self.label_config[sample['domain']]: 
                 problem_config[label_var]  = self.label_config[sample['domain']][label_var]
                 domains = list(set(domains))
                 
@@ -217,15 +238,74 @@ class MetaLoader(Dataset):
             return hg_Dataset.from_dict(output).with_format('torch'), problem_config, domains
         
         return TensorDataset(output['input_ids'], output[ 'attention_mask'], *label_array), problem_config, domains
+    
         
     def __getitem__(self, index):
-        support_set, _, _ = self.create_feature_set(self.support[index],self.text_var, self.label_vars)
-        query_set, problem_config, domains = self.create_feature_set(self.query[index], self.text_var, self.label_vars)
-        return support_set, query_set, problem_config, domains
+        support_set, support_config, support_domains = self.create_feature_set(self.support[index],self.text_var, self.label_vars)
+        query_set, query_config, query_domains = self.create_feature_set(self.query[index], self.text_var, self.label_vars)
+        
+        support_domain, query_domain = support_domains[0], query_domains[0]
+        if self.batch_mode == 'disjoint':
+            return (support_set, support_config, support_domain),(query_set, query_config, query_domain)
+        
+        return support_set, query_set, query_config, query_domains
     
     
     def __len__(self):
         return self.num_task
+    
+    
+class MetaTriLoader(MetaLoader):
+    """
+    Return disjoint support, target, and query set 
+    """
+    def __init__(self, *args, **kwargs):
+        try:
+              self.k_target = kwargs.pop('k_target')
+        except KeyError: pass
+        super().__init__(*args, **kwargs)
+      
+        if self.batch_mode != 'disjoint':
+            raise Exception("This class only takes batch_mode = 'disjoint'")
+        
+        if not self.k_target:
+            self.k_target = self.k_support
+    
+    def __reset_batch__(self):
+        self.support = [] 
+        self.query = []
+        self.target = [] 
+        
+    def create_disjoint_batch(self):
+        """
+        Arrange data into mutually exclusive support, target, and query batch
+        """
+        if self.verbose: 
+            print("Creating DISJOINT batch...")
+        self.__reset_batch__()
+        # random.seed(seed)
+        for i in range(self.num_task):
+            test_domain =  random.choice(self.domain_list)
+            train_domains = tuple(set(self.domain_list) - set([test_domain]))
+            support_domain, target_domain  = random.sample(train_domains, 2)
+            sample_support = [random.choice(self.data[support_domain]) for i in range(self.k_support)]
+            sample_target = [random.choice(self.data[target_domain]) for i in range(self.k_target)]
+            sample_test  = [random.choice(self.data[test_domain]) for i in range(self.k_query)] 
+        
+            self.support.append(sample_support)  
+            self.target.append(sample_target)
+            self.query.append(sample_test)
+            
+    def __getitem__(self, index):
+        support_set, support_config, support_domains = self.create_feature_set(self.support[index],self.text_var, self.label_vars)
+        target_set, target_config, target_domains = self.create_feature_set(self.target[index],self.text_var, self.label_vars)
+        query_set, query_config, query_domains = self.create_feature_set(self.query[index], self.text_var, self.label_vars)
+
+        support_domain, target_domain, query_domain = support_domains[0], target_domains[0], query_domains[0]
+        
+        return (support_set, support_config, support_domain), (target_set, target_config, target_domain), (query_set, query_config, query_domain)
+
+
     
     
 ############################## DATA HELPER FUNCTIONS ##############################
@@ -347,9 +427,18 @@ def to_torch_Dataset(df:pd.DataFrame, select_vars:list, tokenize_function):
     return ds
 
 ############################## TRAINING HELPER FUNCTIONS ##############################
-def move_to_device(model:dict, device):
-    for key, component in model.items():
-        model[key] = component.to(device)
+def move_to_device(model, device):
+    """
+    Move model's components to torchd device
+    
+    model: dict of Pytorch Modules or A module itself 
+    device: torch.device('cpu') or torch.device('gpu')
+    """
+    if isinstance(model, dict): 
+        for key, component in model.items():
+            model[key] = component.to(device)
+    else: 
+            model = model.to(device)
     return model
 
 def cleanup(): 

@@ -12,9 +12,87 @@ from transformers import RobertaForSequenceClassification, BertForSequenceClassi
 from copy import deepcopy
 import gc
 from sklearn.metrics import accuracy_score, f1_score
+from math import ceil, floor, prod
 
 model_lookup = {'roberta':RobertaForSequenceClassification, 'bert':BertForSequenceClassification}
 
+
+#############################  HELPER FUNCTIONS  #############################
+def sigmoid(x):
+    return np.where(x >= 0, 
+                    1 / (1 + np.exp(-x)), 
+                    np.exp(x) / (1 + np.exp(x)))
+  
+
+def process_prediction(logits_all, labels_all, task_config, p_threshold=0.5, return_preds=False): 
+    '''
+    Order of task config must match the index of logits and labels 
+    
+    Use only inside of Meta_learner classes
+    '''
+    results = {'acc':[], 'f1':[]}
+    preds_all = [] 
+    for idx, (_, v) in enumerate(task_config.items()):
+        problem_type = v['problem_type']
+        logits = logits_all[idx].clone().detach().cpu().numpy()
+        labels = labels_all[idx].clone().detach().cpu().numpy()
+        
+        if problem_type == 'multi_label_classification':
+            preds = (sigmoid(logits) >= p_threshold).astype(int)
+        else:
+            preds = np.argmax(logits, axis=1)
+        
+        preds_all.append(preds)
+        results['acc'].append(round(accuracy_score(y_pred = preds, y_true=labels),3))
+        results['f1'].append(round(f1_score(y_pred = preds, y_true=labels, average='macro', zero_division=0),3))
+
+        del logits, labels
+    
+    return (results, preds_all) if return_preds else (results)
+
+
+def set_requires_grad(model, requires_grad=True):
+    for param in model.parameters():
+        param.requires_grad = requires_grad
+        
+
+def get_average_report(*args, num_round=3):
+    report = []
+    for item in args:
+        if isinstance(item[0], list):
+            avg = [round(np.mean(i), num_round) for i in item]
+        else:
+            avg = round(np.mean(item), num_round)
+        report.append(avg)
+    return tuple(report)
+
+##### FUNCTIONS TO CALCULATE SHAPE OF OUTPUT FOR DIFFERENT LAYERS
+def convert_to_tuple(d: int, length=2): 
+    return tuple([d for i in range(length)])
+
+def conv2d_output_shape(input_shape: tuple, kernel, padding=(1,1), stride=(1,1), dilation=(1,1), c_out=13):
+    n, c_in, h_in , w_in = input_shape
+    h_out =  floor((h_in + 2*padding[0] - dilation[0] * (kernel[0] - 1) - 1)/stride[0]) + 1
+    w_out =  floor((w_in + 2*padding[1] - dilation[1] * (kernel[1] - 1) - 1)/stride[1]) + 1
+    return (n, c_out, h_out, w_out)
+
+def max2d_output_shape(input_shape, kernel, stride=(1,1), dilation=(1,1), padding=(0,0)):
+    n, c, h_in, w_in = input_shape
+    h_out = floor((h_in + 2*padding[0] - dilation[0] * (kernel[0] - 1) - 1)/stride[0] + 1 )
+    w_out = floor((w_in + 2*padding[1] - dilation[1] * (kernel[1] - 1) - 1)/stride[1] + 1 )
+    return (n, c, h_out, w_out)
+
+def get_extractor_output_shape(input_shape:tuple, ops:dict = {'conv2d': ((3, 768),1,1,1), 'maxpool2d': (3,1,1,0)}):
+    output_shape = input_shape
+    shape_function_lookup = {'conv2d': conv2d_output_shape, 'maxpool2d': max2d_output_shape}
+
+    for op, args in ops.items():
+        args = [arg if type(arg) is tuple else convert_to_tuple(arg) for arg in args ]
+        print(args)
+        output_shape = shape_function_lookup[op](output_shape, *args)
+    return output_shape
+      
+    
 #############################  SINGLE/BINARY META LEARNER  #############################
 class MAML_Learner(nn.Module):
     def __init__(self, args, model_lookup:dict=model_lookup):
@@ -139,3 +217,17 @@ class MAML_Learner(nn.Module):
         return np.mean(task_accs)
     
     
+#############################  BASE CLASS FOR MULTI META LEARNER  #############################
+class Multi_Meta_Learner(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.class_name = 'Multi_Meta_Learner'
+                
+    def forward_fast_model(self): 
+        return None
+    
+    def train_fast_model(self):
+        return None
+    
+    def eval_fast_model(self):
+        return None
